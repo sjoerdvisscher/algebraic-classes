@@ -6,6 +6,8 @@
   , UndecidableInstances
   , TemplateHaskell
   , DeriveFunctor
+  , DeriveFoldable
+  , DeriveTraversable
   #-}
 -----------------------------------------------------------------------------
 -- |
@@ -33,6 +35,8 @@ import Data.Algebra.TH
 
 import Control.Arrow ((&&&))
 import Data.Monoid
+import Data.Foldable
+import Data.Traversable
 
 
 instance Algebra f () where

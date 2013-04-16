@@ -16,8 +16,9 @@
 module Data.Algebra.Internal where
 
 import GHC.Exts (Constraint)
+import Data.Traversable (Traversable)
 
-class Functor f => AlgebraSignature f where
+class Traversable f => AlgebraSignature f where
   -- | The class for which @f@ is the signature.
   type Class f :: * -> Constraint
   -- | Translate the operations of the signature to method calls of the class.

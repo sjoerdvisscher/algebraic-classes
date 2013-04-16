@@ -23,8 +23,12 @@ module Data.Algebra.TH
 import Data.Algebra.Internal
 
 import Control.Applicative
+import Data.Foldable (Foldable)
+import Data.Traversable (Traversable)
+
 import Language.Haskell.TH
 import Data.Generics
+
 
 data SignatureTH = SignatureTH 
   { signatureName :: Name
@@ -89,7 +93,7 @@ deriveInstance typ = do
 buildSignatureDataType :: SignatureTH -> [Dec]
 buildSignatureDataType s =
   let cons = [ NormalC nm (map ((,) NotStrict) ts) | OperationTH _ nm ts <- operations s ]
-  in [DataD [] (signatureName s) [PlainTV (typeVarName s)] cons [''Functor, ''Show]]
+  in [DataD [] (signatureName s) [PlainTV (typeVarName s)] cons [''Functor, ''Foldable, ''Traversable, ''Show]]
 
 signatureInstance :: Name -> SignatureTH -> [Dec]
 signatureInstance nm s = [inst]
