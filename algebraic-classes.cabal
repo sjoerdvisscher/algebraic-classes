@@ -1,5 +1,5 @@
 name:                algebraic-classes
-version:             0.1
+version:             0.2
 synopsis:            Conversions between algebraic classes and F-algebras.
 description:         Algebraic classes are type classes where all the methods return a value of the same type, which is also the class parameter.
                      Examples from @base@ are @Num@ and @Monoid@.
@@ -16,6 +16,7 @@ description:         Algebraic classes are type classes where all the methods re
                      This is useful because type classes are more commonly used in Haskell than F-algebras, but F-algebras are
                      easier to work with, because they are just functions.
 homepage:            https://github.com/sjoerdvisscher/algebraic-classes
+bug-reports:         https://github.com/sjoerdvisscher/algebraic-classes/issues
 license:             BSD3
 license-file:        LICENSE
 author:              Sjoerd Visscher

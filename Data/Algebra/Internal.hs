@@ -2,6 +2,8 @@
     TypeFamilies 
   , ConstraintKinds
   , MultiParamTypeClasses
+  , FlexibleInstances
+  , UndecidableInstances
   #-}
 -----------------------------------------------------------------------------
 -- |
@@ -16,7 +18,11 @@
 module Data.Algebra.Internal where
 
 import GHC.Exts (Constraint)
-import Data.Traversable (Traversable)
+import Control.Applicative
+import Data.Traversable (Traversable(..))
+
+import GHC.Conc (STM)
+import Data.Monoid
 
 class Traversable f => AlgebraSignature f where
   -- | The class for which @f@ is the signature.
@@ -31,3 +37,22 @@ class Algebra f a where
   -- > instance (Class f m, Class f n) => Algebra f (m, n) where
   -- >   algebra fmn = (evaluate (fmap fst fmn), evaluate (fmap snd fmn))
   algebra :: AlgebraSignature f => f a -> a
+  
+-- | If you just want to applicatively lift existing instances, you can use this default implementation of `algebra`.
+algebraA :: (Applicative g, Class f b, AlgebraSignature f) => f (g b) -> g b
+algebraA = fmap evaluate . sequenceA
+
+instance Algebra f () where
+  algebra = const () 
+
+-- There are 2 possible instances for tuples:
+-- instance (Class f m, Class f n) => Algebra f (m, n) where
+--   algebra = evaluate . fmap fst &&& evaluate . fmap snd
+-- instance (Monoid a, Class f b) => Algebra f (a, b) where algebra = algebraA
+
+instance Class f b => Algebra f (a -> b) where algebra = algebraA
+instance Class f b => Algebra f (IO b) where algebra = algebraA
+instance Class f b => Algebra f (Maybe b) where algebra = algebraA
+instance Class f b => Algebra f (Either a b) where algebra = algebraA
+instance Class f b => Algebra f (STM b) where algebra = algebraA
+instance (Monoid m, Class f b) => Algebra f (Const m b) where algebra = algebraA

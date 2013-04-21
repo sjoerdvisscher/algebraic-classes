@@ -2,8 +2,6 @@
     TypeFamilies 
   , ConstraintKinds
   , MultiParamTypeClasses
-  , FlexibleInstances
-  , UndecidableInstances
   , TemplateHaskell
   , DeriveFunctor
   , DeriveFoldable
@@ -23,6 +21,7 @@ module Data.Algebra
   ( -- * Classes
     AlgebraSignature(..)
   , Algebra(..)
+  , algebraA
     -- * Template Haskell functions
   , deriveInstance
   , deriveSignature
@@ -33,20 +32,8 @@ module Data.Algebra
 import Data.Algebra.Internal
 import Data.Algebra.TH
 
-import Control.Arrow ((&&&))
 import Data.Monoid
-import Data.Foldable
-import Data.Traversable
 
-
-instance Algebra f () where
-  algebra = const () 
-
-instance (Class f m, Class f n) => Algebra f (m, n) where
-  algebra = evaluate . fmap fst &&& evaluate . fmap snd
-
-instance Class f b => Algebra f (a -> b) where
-  algebra fab a = evaluate (fmap ($ a) fab)
   
 -- | The `Monoid` signature has this `AlgebraSignature` instance:
 --
