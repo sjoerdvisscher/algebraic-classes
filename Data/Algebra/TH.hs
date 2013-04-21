@@ -23,6 +23,7 @@ module Data.Algebra.TH
 import Data.Algebra.Internal
 
 import Control.Applicative
+import Control.Arrow ((***))
 import Data.Foldable (Foldable)
 import Data.Traversable (Traversable)
 
@@ -39,21 +40,21 @@ data SignatureTH = SignatureTH
 data OperationTH = OperationTH
   { functionName :: Name
   , operationName :: Name
-  , arguments :: [Type]
+  , arity :: Int
+  , constructor :: Con
   }
 
 getSignatureInfo :: Name -> Q SignatureTH
 getSignatureInfo name = do
   ClassI (ClassD _ _ _ _ decs) _ <- reify name
   let tv = mkName "a"
-  SignatureTH 
-    <$> changeName (++ "Signature") name 
-    <*> pure tv 
-    <*> sequence 
-      [ OperationTH nm
-        <$> changeName ("Op_" ++) nm 
-        <*> (everywhere (mkT (rename tv' tv)) <$> buildOperation tv' tp)
+  let sigName = changeName (++ "Signature") name 
+  return 
+    $ SignatureTH sigName tv
+      [ OperationTH nm opName ar (everywhere (mkT (rename tv' tv)) (mkCon opName))
       | SigD nm (ForallT [PlainTV tv'] _ tp) <- decs 
+      , Just (ar, mkCon) <- [buildOperation tv' tp]
+      , let opName = changeName ("Op_" ++) nm
       ]
 
 -- | Derive a signature for an algebraic class.
@@ -87,12 +88,12 @@ deriveInstance typ = do
   let
     impl = 
       [ FunD fName [Clause (map VarP args) (NormalB (AppE (VarE 'algebra) (foldl (\e arg -> AppE e (VarE arg)) (ConE opName) args))) []] 
-      | OperationTH fName opName ts <- operations s, let args = mkArgList (length ts) ]
+      | OperationTH fName opName ar _ <- operations s, let args = mkArgList ar ]
   (++ [InstanceD ctx (AppT (ConT className) typeName) impl]) <$> deriveSignature className
 
 buildSignatureDataType :: SignatureTH -> [Dec]
 buildSignatureDataType s =
-  let cons = [ NormalC nm (map ((,) NotStrict) ts) | OperationTH _ nm ts <- operations s ]
+  let cons = [ con | OperationTH _ _ _ con <- operations s ]
   in [DataD [] (signatureName s) [PlainTV (typeVarName s)] cons [''Functor, ''Foldable, ''Traversable, ''Show]]
 
 signatureInstance :: Name -> SignatureTH -> [Dec]
@@ -101,16 +102,16 @@ signatureInstance nm s = [inst]
     typeInst = TySynInstD ''Class [ConT (signatureName s)] (ConT nm)
     clauses = 
       [ Clause [ConP opName (map VarP args)] (NormalB (foldl (\e arg -> AppE e (VarE arg)) (VarE fName) args)) []
-      | OperationTH fName opName ts <- operations s, let args = mkArgList (length ts) ]
+      | OperationTH fName opName ar _ <- operations s, let args = mkArgList ar ]
     inst = InstanceD [] (AppT (ConT ''AlgebraSignature) (ConT (signatureName s))) [typeInst, FunD 'evaluate clauses]
 
-buildOperation :: Name -> Type -> Q [Type]
-buildOperation nm (VarT nm') = if nm == nm' then return [] else fail "This class is not an algebra."
-buildOperation nm (AppT (AppT ArrowT h) t) = (h :) <$> buildOperation nm t
-buildOperation _ t = fail $ "Don't know how to handle: " ++ show t
+buildOperation :: Name -> Type -> Maybe (Int, Name -> Con)
+buildOperation nm (VarT nm') = if nm == nm' then Just (0, \opName -> NormalC opName []) else Nothing
+buildOperation nm (AppT (AppT ArrowT h) t) = ((+1) *** fmap (prependC (NotStrict, h))) <$> buildOperation nm t
+buildOperation _ t = Nothing
 
-changeName :: (String -> String) -> Name -> Q Name
-changeName f = return . mkName . f . nameBase
+changeName :: (String -> String) -> Name -> Name
+changeName f = mkName . f . nameBase
 
 mkArgList :: Int -> [Name]
 mkArgList n = [ mkName $ "a" ++ show i | i <- [1 .. n] ]
@@ -118,3 +119,6 @@ mkArgList n = [ mkName $ "a" ++ show i | i <- [1 .. n] ]
 rename :: Name -> Name -> Type -> Type
 rename a b (VarT c) | a == c = VarT b
 rename _ _ t = t
+
+prependC :: (Strict, Type) -> Con -> Con
+prependC st (NormalC nm sts) = NormalC nm (st:sts)
