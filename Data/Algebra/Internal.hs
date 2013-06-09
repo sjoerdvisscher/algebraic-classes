@@ -23,6 +23,7 @@ import Data.Traversable (Traversable(..))
 
 import GHC.Conc (STM)
 import Data.Monoid
+import Control.Arrow ((&&&))
 
 class Traversable f => AlgebraSignature f where
   -- | The class for which @f@ is the signature.
@@ -44,11 +45,8 @@ algebraA = fmap evaluate . sequenceA
 
 instance Algebra f () where
   algebra = const () 
-
--- There are 2 possible instances for tuples:
--- instance (Class f m, Class f n) => Algebra f (m, n) where
---   algebra = evaluate . fmap fst &&& evaluate . fmap snd
--- instance (Monoid a, Class f b) => Algebra f (a, b) where algebra = algebraA
+instance (Class f m, Class f n) => Algebra f (m, n) where
+  algebra = evaluate . fmap fst &&& evaluate . fmap snd
 
 instance Class f b => Algebra f (a -> b) where algebra = algebraA
 instance Class f b => Algebra f (IO b) where algebra = algebraA

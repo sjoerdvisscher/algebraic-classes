@@ -58,12 +58,12 @@ getSignatureInfo name = do
       ]
 
 -- | Derive a signature for an algebraic class.
---   For exaple:
+--   For example:
 --
 -- > deriveSignature ''Num
 --
 --   `deriveSignature` creates the signature data type and an instance for it of the
---   `AlgebraSignature` class. @DeriveFunctor@ is used the generate the `Functor` instance of the signature.
+--   `AlgebraSignature` class. @DeriveTraversable@ is used the generate the `Traversable` instance of the signature.
 --
 --   This will do nothing if there is already a signature for the class in scope.
 deriveSignature :: Name -> Q [Dec]
