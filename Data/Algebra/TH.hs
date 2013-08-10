@@ -11,6 +11,7 @@
 -----------------------------------------------------------------------------
 module Data.Algebra.TH 
   ( deriveInstance
+  , deriveInstanceWith
   , deriveSignature
   -- * Possibly useful internals
   , SignatureTH(..)
@@ -60,7 +61,17 @@ getSignatureInfo name = do
 -- | Derive a signature for an algebraic class.
 --   For example:
 --
--- > deriveSignature ''Num
+-- > deriveSignature ''Monoid
+--
+--   The above would generate the following:
+--
+-- > data MonoidSignature a = Op_mempty | Op_mappend a a | Op_mconcat [a]
+-- >   deriving (Functor, Foldable, Traversable, Show, Eq, Ord)
+-- > instance AlgebraSignature MonoidSignature where
+-- >   type Class MonoidSignature = Monoid
+-- >   evaluate Op_mempty = mempty
+-- >   evaluate (Op_mappend a b) = mappend a b
+-- >   evaluate (Op_mconcat ms) = mconcat ms  
 --
 --   `deriveSignature` creates the signature data type and an instance for it of the
 --   `AlgebraSignature` class. @DeriveTraversable@ is used the generate the `Traversable` instance of the signature.
@@ -82,19 +93,41 @@ deriveSignature className = do
 --
 --   `deriveInstance` will generate a signature for the class if there is no signature in scope.
 deriveInstance :: Q Type -> Q [Dec]
-deriveInstance typ = do
-  (ForallT _ ctx (AppT (ConT className) typeName)) <- typ
+deriveInstance typ = deriveInstanceWith typ $ return []
+
+-- | Derive an instance for an algebraic class with a given partial implementation.
+--   For example:
+--
+-- > deriveInstanceWith [t| Num n => Num (Integer -> n) |] 
+-- >   [d|
+-- >     fromInteger x y = fromInteger (x + y)
+-- >   |]
+deriveInstanceWith :: Q Type -> Q [Dec] -> Q [Dec]
+deriveInstanceWith qtyp dec = do
+  typ <- qtyp
+  case typ of
+    ForallT _ ctx (AppT (ConT className) typeName) -> deriveInstanceWith' ctx className typeName dec
+    AppT (ConT className) typeName -> deriveInstanceWith' [] className typeName dec
+
+deriveInstanceWith' :: Cxt -> Name -> Type -> Q [Dec] -> Q [Dec]
+deriveInstanceWith' ctx className typeName dec = do
+  given <- dec
   s <- getSignatureInfo className
-  let
+  let 
+    givenLU = 
+      [ (nameBase nm, \nm' -> FunD nm' cs) | FunD nm cs <- given ] ++ 
+      [ (nameBase nm, \nm' -> ValD (VarP nm') b ds) | ValD (VarP nm) b ds <- given]
     impl = 
-      [ FunD fName [Clause (map VarP args) (NormalB (AppE (VarE 'algebra) (foldl (\e arg -> AppE e (VarE arg)) (ConE opName) args))) []] 
-      | OperationTH fName opName ar _ <- operations s, let args = mkArgList ar ]
+      [ maybe 
+          (FunD fName [Clause (map VarP args) (NormalB (AppE (VarE 'algebra) (foldl (\e arg -> AppE e (VarE arg)) (ConE opName) args))) []]) 
+          ($ fName) mgiven
+      | OperationTH fName opName ar _ <- operations s, let mgiven = lookup (nameBase fName) givenLU, let args = mkArgList ar ]   
   (++ [InstanceD ctx (AppT (ConT className) typeName) impl]) <$> deriveSignature className
 
 buildSignatureDataType :: SignatureTH -> [Dec]
 buildSignatureDataType s =
   let cons = [ con | OperationTH _ _ _ con <- operations s ]
-  in [DataD [] (signatureName s) [PlainTV (typeVarName s)] cons [''Functor, ''Foldable, ''Traversable, ''Show]]
+  in [DataD [] (signatureName s) [PlainTV (typeVarName s)] cons [''Functor, ''Foldable, ''Traversable, ''Show, ''Eq, ''Ord]]
 
 signatureInstance :: Name -> SignatureTH -> [Dec]
 signatureInstance nm s = [inst]
@@ -108,7 +141,7 @@ signatureInstance nm s = [inst]
 buildOperation :: Name -> Type -> Maybe (Int, Name -> Con)
 buildOperation nm (VarT nm') = if nm == nm' then Just (0, \opName -> NormalC opName []) else Nothing
 buildOperation nm (AppT (AppT ArrowT h) t) = ((+1) *** fmap (prependC (NotStrict, h))) <$> buildOperation nm t
-buildOperation _ t = Nothing
+buildOperation _ _ = Nothing
 
 changeName :: (String -> String) -> Name -> Name
 changeName f = mkName . f . nameBase

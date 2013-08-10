@@ -18,28 +18,13 @@
 -- Portability :  non-portable
 -----------------------------------------------------------------------------
 module Data.Algebra 
-  ( -- * Classes
-    AlgebraSignature(..)
+  ( deriveInstance
+  , deriveInstanceWith
+    -- * Classes
   , Algebra(..)
   , algebraA
-    -- * Template Haskell functions
-  , deriveInstance
-  , deriveSignature
-    -- * Example signature
-  , MonoidSignature(..)
+  , AlgebraSignature(..)
   ) where
 
 import Data.Algebra.Internal
 import Data.Algebra.TH
-
-import Data.Monoid
-
-  
--- | The `Monoid` signature has this `AlgebraSignature` instance:
---
--- > instance AlgebraSignature MonoidSignature where
--- >   type Class MonoidSignature = Monoid
--- >   evaluate Op_mempty = mempty
--- >   evaluate (Op_mappend a b) = mappend a b
--- >   evaluate (Op_mconcat ms) = mconcat ms
-deriveSignature ''Monoid
