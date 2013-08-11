@@ -25,8 +25,9 @@ import Data.Algebra.Internal
 
 import Control.Applicative
 import Control.Arrow ((***))
-import Data.Foldable (Foldable)
+import Data.Foldable (Foldable(foldMap))
 import Data.Traversable (Traversable)
+import Data.Monoid (Endo(..))
 
 import Language.Haskell.TH
 import Data.Generics
@@ -115,12 +116,13 @@ deriveInstanceWith' ctx className typeName dec = do
   s <- getSignatureInfo className
   let 
     givenLU = 
-      [ (nameBase nm, \nm' -> FunD nm' cs) | FunD nm cs <- given ] ++ 
-      [ (nameBase nm, \nm' -> ValD (VarP nm') b ds) | ValD (VarP nm) b ds <- given]
+      [ (nameBase nm, (nm, renamer f)) | f@(FunD nm _) <- given ] ++ 
+      [ (nameBase nm, (nm, renamer v)) | v@(ValD (VarP nm) _ _) <- given ]
+    renamer = renameAll [ (nm, nm') | (b, (nm, _)) <- givenLU, OperationTH nm' _ _ _ <- operations s, nameBase nm' == b ]
     impl = 
       [ maybe 
           (FunD fName [Clause (map VarP args) (NormalB (AppE (VarE 'algebra) (foldl (\e arg -> AppE e (VarE arg)) (ConE opName) args))) []]) 
-          ($ fName) mgiven
+          snd mgiven
       | OperationTH fName opName ar _ <- operations s, let mgiven = lookup (nameBase fName) givenLU, let args = mkArgList ar ]   
   (++ [InstanceD ctx (AppT (ConT className) typeName) impl]) <$> deriveSignature className
 
@@ -149,8 +151,11 @@ changeName f = mkName . f . nameBase
 mkArgList :: Int -> [Name]
 mkArgList n = [ mkName $ "a" ++ show i | i <- [1 .. n] ]
 
-rename :: Name -> Name -> Type -> Type
-rename a b (VarT c) | a == c = VarT b
+renameAll :: Data a => [(Name, Name)] -> a -> a
+renameAll m = everywhere (mkT (appEndo (foldMap (\(a, b) -> Endo $ rename a b) m)))
+
+rename :: Name -> Name -> Name -> Name
+rename a b c | a == c = b
 rename _ _ t = t
 
 prependC :: (Strict, Type) -> Con -> Con
