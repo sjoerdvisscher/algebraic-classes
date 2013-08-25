@@ -12,6 +12,7 @@
 module Data.Algebra.TH 
   ( deriveInstance
   , deriveInstanceWith
+  , deriveInstanceWith_skipSignature
   , deriveSignature
   -- * Possibly useful internals
   , SignatureTH(..)
@@ -104,14 +105,26 @@ deriveInstance typ = deriveInstanceWith typ $ return []
 -- >     fromInteger x y = fromInteger (x + y)
 -- >   |]
 deriveInstanceWith :: Q Type -> Q [Dec] -> Q [Dec]
-deriveInstanceWith qtyp dec = do
+deriveInstanceWith = deriveInstanceWith' True
+
+-- | Derive an instance for an algebraic class with a given partial implementation,
+--   but don't generate the signature. This is for when you want to derive several instances
+--   of the same class, but can't splice the results directly. In that case 'deriveSignature'
+--   can't detect it has already generated the signature earlier.
+deriveInstanceWith_skipSignature :: Q Type -> Q [Dec] -> Q [Dec]
+deriveInstanceWith_skipSignature = deriveInstanceWith' False
+
+deriveInstanceWith' :: Bool -> Q Type -> Q [Dec] -> Q [Dec]
+deriveInstanceWith' addSignature qtyp dec = do
   typ <- qtyp
   case typ of
-    ForallT _ ctx (AppT (ConT className) typeName) -> deriveInstanceWith' ctx className typeName dec
-    AppT (ConT className) typeName -> deriveInstanceWith' [] className typeName dec
+    ForallT _ ctx (AppT (ConT className) typeName) -> 
+      deriveInstanceWith'' addSignature ctx className typeName dec
+    AppT (ConT className) typeName -> 
+      deriveInstanceWith'' addSignature [] className typeName dec
 
-deriveInstanceWith' :: Cxt -> Name -> Type -> Q [Dec] -> Q [Dec]
-deriveInstanceWith' ctx className typeName dec = do
+deriveInstanceWith'' :: Bool -> Cxt -> Name -> Type -> Q [Dec] -> Q [Dec]
+deriveInstanceWith'' addSignature ctx className typeName dec = do
   given <- dec
   s <- getSignatureInfo className
   let 
@@ -124,7 +137,8 @@ deriveInstanceWith' ctx className typeName dec = do
           (FunD fName [Clause (map VarP args) (NormalB (AppE (VarE 'algebra) (foldl (\e arg -> AppE e (VarE arg)) (ConE opName) args))) []]) 
           snd mgiven
       | OperationTH fName opName ar _ <- operations s, let mgiven = lookup (nameBase fName) givenLU, let args = mkArgList ar ]   
-  (++ [InstanceD ctx (AppT (ConT className) typeName) impl]) <$> deriveSignature className
+  (++ [InstanceD ctx (AppT (ConT className) typeName) impl]) <$> 
+    if addSignature then deriveSignature className else return []
 
 buildSignatureDataType :: SignatureTH -> [Dec]
 buildSignatureDataType s =
