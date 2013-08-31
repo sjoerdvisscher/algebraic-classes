@@ -23,6 +23,7 @@ module Data.Algebra
     -- * Classes
   , Algebra(..)
   , algebraA
+  , Signature(..)
   , AlgebraSignature(..)
   ) where
 

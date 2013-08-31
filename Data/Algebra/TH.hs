@@ -149,9 +149,10 @@ buildSignatureDataType s =
     [''Functor, ''Foldable, ''Traversable, ''Eq, ''Ord]]
 
 signatureInstances :: Name -> SignatureTH -> [Dec]
-signatureInstances nm s = [asInst, showInst]
+signatureInstances nm s = [asInst, showInst, sigTFInst]
   where
     signature = ConT (signatureName s)
+    sigTFInst = TySynInstD ''Signature [ConT nm] signature
     typeInst = TySynInstD ''Class [signature] (ConT nm)
     asClauses = 
       [ Clause [ConP opName (map VarP args)] (NormalB (foldl (\e arg -> AppE e (VarE arg)) (VarE fName) args)) []

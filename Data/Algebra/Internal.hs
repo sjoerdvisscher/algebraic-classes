@@ -25,6 +25,9 @@ import GHC.Conc (STM)
 import Data.Monoid
 import Control.Arrow ((&&&))
 
+-- | The signature datatype for the class @c@.
+type family Signature (c :: * -> Constraint) :: * -> *
+
 class Traversable f => AlgebraSignature f where
   -- | The class for which @f@ is the signature.
   type Class f :: * -> Constraint
