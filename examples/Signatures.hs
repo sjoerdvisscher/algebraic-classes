@@ -1,4 +1,4 @@
- {-# OPTIONS_GHC -ddump-splices #-}
+{-# OPTIONS_GHC -ddump-splices #-}
 {-# LANGUAGE TemplateHaskell, TypeFamilies, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 
 import Data.Algebra
