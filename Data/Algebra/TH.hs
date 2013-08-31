@@ -29,8 +29,9 @@ import Control.Arrow ((***))
 import Data.Foldable (Foldable(foldMap))
 import Data.Traversable (Traversable, forM)
 import Data.Monoid (Endo(..))
-import Data.Maybe (catMaybes)
 
+import Data.Maybe (catMaybes)
+import Data.Char (isAlpha)
 import Language.Haskell.TH
 import Data.Generics (Data, everywhere, mkT)
 
@@ -58,7 +59,7 @@ getSignatureInfo name = do
     ClassOpI _ _ _ fty <- reify nm
     return $ case buildOperation tv' tp of
       Just (ar, mkCon) -> 
-        let opName = changeName ("Op_" ++) nm
+        let opName = changeName addPrefix nm
         in Just $ OperationTH nm opName ar (everywhere (mkT (rename tv' tv)) (mkCon opName)) fty
       _ -> Nothing
   return $ SignatureTH sigName tv $ catMaybes ops
@@ -71,12 +72,20 @@ getSignatureInfo name = do
 --   The above would generate the following:
 --
 -- > data MonoidSignature a = Op_mempty | Op_mappend a a | Op_mconcat [a]
--- >   deriving (Functor, Foldable, Traversable, Show, Eq, Ord)
+-- >   deriving (Functor, Foldable, Traversable, Eq, Ord)
+-- >
+-- > type instance Signature Monoid = MonoidSignature
+-- >
 -- > instance AlgebraSignature MonoidSignature where
 -- >   type Class MonoidSignature = Monoid
 -- >   evaluate Op_mempty = mempty
 -- >   evaluate (Op_mappend a b) = mappend a b
 -- >   evaluate (Op_mconcat ms) = mconcat ms  
+-- >
+-- > instance Show a => Show (MonoidSignature a) where
+-- >   showsPrec d Op_mempty          = showParen (d > 10) $ showString "mempty"
+-- >   showsPrec d (Op_mappend a1 a2) = showParen (d > 10) $ showString "mappend" . showChar ' ' . showsPrec 11 a1 . showChar ' ' . showsPrec 11 a2
+-- >   showsPrec d (Op_mconcat a1)    = showParen (d > 10) $ showString "mconcat" . showChar ' ' . showsPrec 11 a1
 --
 --   `deriveSignature` creates the signature data type and an instance for it of the
 --   `AlgebraSignature` class. @DeriveTraversable@ is used the generate the `Traversable` instance of the signature.
@@ -161,7 +170,7 @@ signatureInstances nm s = [asInst, showInst, sigTFInst]
     showsPrecClauses =
       [ Clause [VarP d, ConP opName (map VarP args)] (NormalB $ createShowsPrec d (nameBase fName) prec args) []
       | OperationTH fName opName ar _ (Fixity prec _) <- operations s, let args = mkArgList ar, let d = mkName "d" ]
-    createShowsPrec d name prec [u,v] | prec < 10 = 
+    createShowsPrec d name prec [u,v] | isOperator name = 
       InfixE (Just (AppE (VarE 'showParen) (InfixE (Just (VarE d)) (VarE '(>)) (Just (LitE (IntegerL prec')))))) (VarE '($)) 
         (Just (InfixE (Just (AppE (AppE (VarE 'showsPrec) (LitE (IntegerL prec1))) (VarE u))) (VarE '(.)) 
         (Just (InfixE (Just (AppE (VarE 'showString) (LitE (StringL (" " ++ name ++ " "))))) (VarE '(.)) 
@@ -171,8 +180,8 @@ signatureInstances nm s = [asInst, showInst, sigTFInst]
         prec1 = prec' + 1
     createShowsPrec d name prec args = 
       InfixE (Just (AppE (VarE 'showParen) (InfixE (Just (VarE d)) (VarE '(>)) (Just (LitE (IntegerL 10)))))) (VarE '($)) $
-        foldr addArg (Just (AppE (VarE 'showString) (LitE (StringL name)))) args
-    addArg arg expr = 
+        foldl addArg (Just (AppE (VarE 'showString) (LitE (StringL name)))) args
+    addArg expr arg = 
       Just $ InfixE expr (VarE '(.)) (Just (InfixE (Just (AppE (VarE 'showChar) (LitE (CharL ' ')))) (VarE '(.)) 
         (Just (AppE (AppE (VarE 'showsPrec) (LitE (IntegerL 11))) (VarE arg)))))
     showInst = InstanceD [ClassP ''Show [a]] (AppT (ConT ''Show) (AppT signature a)) [FunD 'showsPrec showsPrecClauses]
@@ -185,6 +194,14 @@ buildOperation _ _ = Nothing
 
 changeName :: (String -> String) -> Name -> Name
 changeName f = mkName . f . nameBase
+
+addPrefix :: String -> String
+addPrefix s | isOperator s = ":%:" ++ s
+addPrefix s = "Op_" ++ s
+
+isOperator :: String -> Bool
+isOperator (c:_) = not (isAlpha c) && c /= '_'
+isOperator _ = False
 
 mkArgList :: Int -> [Name]
 mkArgList n = [ mkName $ "a" ++ show i | i <- [1 .. n] ]

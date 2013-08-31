@@ -1,5 +1,5 @@
 name:                algebraic-classes
-version:             0.5
+version:             0.5.1
 synopsis:            Conversions between algebraic classes and F-algebras.
 description:         Algebraic classes are type classes where all the methods return a value of the same type, which is also the class parameter.
                      Examples from @base@ are @Num@ and @Monoid@.
@@ -24,6 +24,9 @@ maintainer:          sjoerd@w3future.com
 category:            Data, Generics, Math
 build-type:          Simple
 cabal-version:       >=1.8
+
+extra-source-files:
+  examples/*.hs
 
 library
   exposed-modules:
