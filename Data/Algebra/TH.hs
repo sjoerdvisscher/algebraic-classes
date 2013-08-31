@@ -29,6 +29,7 @@ import Control.Arrow ((***))
 import Data.Foldable (Foldable(foldMap))
 import Data.Traversable (Traversable, forM)
 import Data.Monoid (Endo(..))
+import Data.Maybe (catMaybes)
 
 import Language.Haskell.TH
 import Data.Generics (Data, everywhere, mkT)
@@ -55,10 +56,12 @@ getSignatureInfo name = do
   let sigName = changeName (++ "Signature") name
   ops <- forM decs $ \(SigD nm (ForallT [PlainTV tv'] _ tp)) -> do
     ClassOpI _ _ _ fty <- reify nm
-    Just (ar, mkCon) <- return $ buildOperation tv' tp
-    let opName = changeName ("Op_" ++) nm
-    return $ OperationTH nm opName ar (everywhere (mkT (rename tv' tv)) (mkCon opName)) fty
-  return $ SignatureTH sigName tv ops
+    return $ case buildOperation tv' tp of
+      Just (ar, mkCon) -> 
+        let opName = changeName ("Op_" ++) nm
+        in Just $ OperationTH nm opName ar (everywhere (mkT (rename tv' tv)) (mkCon opName)) fty
+      _ -> Nothing
+  return $ SignatureTH sigName tv $ catMaybes ops
 
 -- | Derive a signature for an algebraic class.
 --   For example:
