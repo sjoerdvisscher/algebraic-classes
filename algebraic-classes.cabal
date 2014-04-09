@@ -1,5 +1,5 @@
 name:                algebraic-classes
-version:             0.5.1
+version:             0.5.2
 synopsis:            Conversions between algebraic classes and F-algebras.
 description:         Algebraic classes are type classes where all the methods return a value of the same type, which is also the class parameter.
                      Examples from @base@ are @Num@ and @Monoid@.
@@ -35,6 +35,6 @@ library
     Data.Algebra.Internal
   
   build-depends:
-      base == 4.6.*
+      base == 4.7.*
     , syb == 0.4.*
-    , template-haskell == 2.8.0.*
+    , template-haskell == 2.9.0.*

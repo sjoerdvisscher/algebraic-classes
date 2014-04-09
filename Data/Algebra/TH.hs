@@ -161,8 +161,8 @@ signatureInstances :: Name -> SignatureTH -> [Dec]
 signatureInstances nm s = [asInst, showInst, sigTFInst]
   where
     signature = ConT (signatureName s)
-    sigTFInst = TySynInstD ''Signature [ConT nm] signature
-    typeInst = TySynInstD ''Class [signature] (ConT nm)
+    sigTFInst = TySynInstD ''Signature (TySynEqn [ConT nm] signature)
+    typeInst = TySynInstD ''Class (TySynEqn [signature] (ConT nm))
     asClauses = 
       [ Clause [ConP opName (map VarP args)] (NormalB (foldl (\e arg -> AppE e (VarE arg)) (VarE fName) args)) []
       | OperationTH fName opName ar _ _ <- operations s, let args = mkArgList ar ]
