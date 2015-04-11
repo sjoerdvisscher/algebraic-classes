@@ -9,7 +9,7 @@
 -- Stability   :  experimental
 -- Portability :  non-portable
 -----------------------------------------------------------------------------
-module Data.Algebra.TH 
+module Data.Algebra.TH
   ( deriveInstance
   , deriveInstanceWith
   , deriveInstanceWith_skipSignature
@@ -24,10 +24,8 @@ module Data.Algebra.TH
 
 import Data.Algebra.Internal
 
-import Control.Applicative
+import Data.Traversable (for)
 import Control.Arrow ((***))
-import Data.Foldable (Foldable(foldMap))
-import Data.Traversable (Traversable, forM)
 import Data.Monoid (Endo(..))
 
 import Data.Maybe (catMaybes)
@@ -36,7 +34,7 @@ import Language.Haskell.TH
 import Data.Generics (Data, everywhere, mkT)
 
 
-data SignatureTH = SignatureTH 
+data SignatureTH = SignatureTH
   { signatureName :: Name
   , typeVarName :: Name
   , operations :: [OperationTH]
@@ -55,13 +53,21 @@ getSignatureInfo name = do
   ClassI (ClassD _ _ _ _ decs) _ <- reify name
   let tv = mkName "a"
   let sigName = changeName (++ "Signature") name
-  ops <- forM decs $ \(SigD nm (ForallT [PlainTV tv'] _ tp)) -> do
-    ClassOpI _ _ _ fty <- reify nm
-    return $ case buildOperation tv' tp of
-      Just (ar, mkCon) -> 
-        let opName = changeName addPrefix nm
-        in Just $ OperationTH nm opName ar (everywhere (mkT (rename tv' tv)) (mkCon opName)) fty
-      _ -> Nothing
+  ops <- for decs $ \sig ->
+    case sig of
+      (SigD nm (ForallT [tv'] _ tp)) -> do
+        let tvn' = tvName tv'
+        dec <- reify nm
+        case dec of
+          ClassOpI _ _ _ fty ->
+            return $ case buildOperation tvn' tp of
+              Just (ar, mkCon) ->
+                let opName = changeName addPrefix nm
+                in Just $ OperationTH nm opName ar (everywhere (mkT (rename tvn' tv)) (mkCon opName)) fty
+              _ -> Nothing
+          _ -> fail $ "No support for " ++ show dec
+      SigD{} -> fail $ "No support for " ++ show sig
+      _ -> return Nothing
   return $ SignatureTH sigName tv $ catMaybes ops
 
 -- | Derive a signature for an algebraic class.
@@ -80,7 +86,7 @@ getSignatureInfo name = do
 -- >   type Class MonoidSignature = Monoid
 -- >   evaluate Op_mempty = mempty
 -- >   evaluate (Op_mappend a b) = mappend a b
--- >   evaluate (Op_mconcat ms) = mconcat ms  
+-- >   evaluate (Op_mconcat ms) = mconcat ms
 -- >
 -- > instance Show a => Show (MonoidSignature a) where
 -- >   showsPrec d Op_mempty          = showParen (d > 10) $ showString "mempty"
@@ -98,7 +104,7 @@ deriveSignature className = do
   return $ if mName == Nothing then buildSignatureDataType s ++ signatureInstances className s else []
 
 -- | Derive an instance for an algebraic class.
---   For example: 
+--   For example:
 --
 --   > deriveInstance [t| (Num m, Num n) => Num (m, n) |]
 --
@@ -112,7 +118,7 @@ deriveInstance typ = deriveInstanceWith typ $ return []
 -- | Derive an instance for an algebraic class with a given partial implementation.
 --   For example:
 --
--- > deriveInstanceWith [t| Num n => Num (Integer -> n) |] 
+-- > deriveInstanceWith [t| Num n => Num (Integer -> n) |]
 -- >   [d|
 -- >     fromInteger x y = fromInteger (x + y)
 -- >   |]
@@ -130,26 +136,26 @@ deriveInstanceWith' :: Bool -> Q Type -> Q [Dec] -> Q [Dec]
 deriveInstanceWith' addSignature qtyp dec = do
   typ <- qtyp
   case typ of
-    ForallT _ ctx (AppT (ConT className) typeName) -> 
+    ForallT _ ctx (AppT (ConT className) typeName) ->
       deriveInstanceWith'' addSignature ctx className typeName dec
-    AppT (ConT className) typeName -> 
+    AppT (ConT className) typeName ->
       deriveInstanceWith'' addSignature [] className typeName dec
 
 deriveInstanceWith'' :: Bool -> Cxt -> Name -> Type -> Q [Dec] -> Q [Dec]
 deriveInstanceWith'' addSignature ctx className typeName dec = do
   given <- dec
   s <- getSignatureInfo className
-  let 
-    givenLU = 
-      [ (nameBase nm, (nm, renamer f)) | f@(FunD nm _) <- given ] ++ 
+  let
+    givenLU =
+      [ (nameBase nm, (nm, renamer f)) | f@(FunD nm _) <- given ] ++
       [ (nameBase nm, (nm, renamer v)) | v@(ValD (VarP nm) _ _) <- given ]
     renamer = renameAll [ (nm, nm') | (b, (nm, _)) <- givenLU, nm' <- functionName <$> operations s, nameBase nm' == b ]
-    impl = 
-      [ maybe 
-          (FunD fName [Clause (map VarP args) (NormalB (AppE (VarE 'algebra) (foldl (\e arg -> AppE e (VarE arg)) (ConE opName) args))) []]) 
+    impl =
+      [ maybe
+          (FunD fName [Clause (map VarP args) (NormalB (AppE (VarE 'algebra) (foldl (\e arg -> AppE e (VarE arg)) (ConE opName) args))) []])
           snd mgiven
-      | OperationTH fName opName ar _ _ <- operations s, let mgiven = lookup (nameBase fName) givenLU, let args = mkArgList ar ]   
-  (++ [InstanceD ctx (AppT (ConT className) typeName) impl]) <$> 
+      | OperationTH fName opName ar _ _ <- operations s, let mgiven = lookup (nameBase fName) givenLU, let args = mkArgList ar ]
+  (++ [InstanceD ctx (AppT (ConT className) typeName) impl]) <$>
     if addSignature then deriveSignature className else return []
 
 buildSignatureDataType :: SignatureTH -> [Dec]
@@ -163,28 +169,28 @@ signatureInstances nm s = [asInst, showInst, sigTFInst]
     signature = ConT (signatureName s)
     sigTFInst = TySynInstD ''Signature (TySynEqn [ConT nm] signature)
     typeInst = TySynInstD ''Class (TySynEqn [signature] (ConT nm))
-    asClauses = 
+    asClauses =
       [ Clause [ConP opName (map VarP args)] (NormalB (foldl (\e arg -> AppE e (VarE arg)) (VarE fName) args)) []
       | OperationTH fName opName ar _ _ <- operations s, let args = mkArgList ar ]
     asInst = InstanceD [] (AppT (ConT ''AlgebraSignature) signature) [typeInst, FunD 'evaluate asClauses]
     showsPrecClauses =
       [ Clause [VarP d, ConP opName (map VarP args)] (NormalB $ createShowsPrec d (nameBase fName) prec args) []
       | OperationTH fName opName ar _ (Fixity prec _) <- operations s, let args = mkArgList ar, let d = mkName "d" ]
-    createShowsPrec d name prec [u,v] | isOperator name = 
-      InfixE (Just (AppE (VarE 'showParen) (InfixE (Just (VarE d)) (VarE '(>)) (Just (LitE (IntegerL prec')))))) (VarE '($)) 
-        (Just (InfixE (Just (AppE (AppE (VarE 'showsPrec) (LitE (IntegerL prec1))) (VarE u))) (VarE '(.)) 
-        (Just (InfixE (Just (AppE (VarE 'showString) (LitE (StringL (" " ++ name ++ " "))))) (VarE '(.)) 
+    createShowsPrec d name prec [u,v] | isOperator name =
+      InfixE (Just (AppE (VarE 'showParen) (InfixE (Just (VarE d)) (VarE '(>)) (Just (LitE (IntegerL prec')))))) (VarE '($))
+        (Just (InfixE (Just (AppE (AppE (VarE 'showsPrec) (LitE (IntegerL prec1))) (VarE u))) (VarE '(.))
+        (Just (InfixE (Just (AppE (VarE 'showString) (LitE (StringL (" " ++ name ++ " "))))) (VarE '(.))
         (Just (AppE (AppE (VarE 'showsPrec) (LitE (IntegerL prec1))) (VarE v)))))))
       where
         prec' = toInteger prec
         prec1 = prec' + 1
-    createShowsPrec d name prec args = 
+    createShowsPrec d name _ args =
       InfixE (Just (AppE (VarE 'showParen) (InfixE (Just (VarE d)) (VarE '(>)) (Just (LitE (IntegerL 10)))))) (VarE '($)) $
         foldl addArg (Just (AppE (VarE 'showString) (LitE (StringL name)))) args
-    addArg expr arg = 
-      Just $ InfixE expr (VarE '(.)) (Just (InfixE (Just (AppE (VarE 'showChar) (LitE (CharL ' ')))) (VarE '(.)) 
+    addArg expr arg =
+      Just $ InfixE expr (VarE '(.)) (Just (InfixE (Just (AppE (VarE 'showChar) (LitE (CharL ' ')))) (VarE '(.))
         (Just (AppE (AppE (VarE 'showsPrec) (LitE (IntegerL 11))) (VarE arg)))))
-    showInst = InstanceD [ClassP ''Show [a]] (AppT (ConT ''Show) (AppT signature a)) [FunD 'showsPrec showsPrecClauses]
+    showInst = InstanceD [AppT (ConT ''Show) a] (AppT (ConT ''Show) (AppT signature a)) [FunD 'showsPrec showsPrecClauses]
     a = VarT $ mkName "a"
 
 buildOperation :: Name -> Type -> Maybe (Int, Name -> Con)
@@ -215,3 +221,7 @@ rename _ _ t = t
 
 prependC :: (Strict, Type) -> Con -> Con
 prependC st (NormalC nm sts) = NormalC nm (st:sts)
+
+tvName :: TyVarBndr -> Name
+tvName (PlainTV nm) = nm
+tvName (KindedTV nm _) = nm

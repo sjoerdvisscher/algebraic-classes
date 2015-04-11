@@ -1,3 +1,9 @@
+0.5.2 -> 0.6
+- Update for GHC 7.10
+  - Updated to base-4.8.0.0
+  - Updated to template-haskell-2.10.0.0
+
 0.5.1 -> 0.5.2
-- Updated to base-4.7.0.0
-- Updated to template-haskell-2.9.0.0
+- Update for GHC 7.8
+  - Updated to base-4.7.0.0
+  - Updated to template-haskell-2.9.0.0

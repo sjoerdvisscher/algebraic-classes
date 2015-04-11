@@ -1,10 +1,8 @@
-{-# LANGUAGE 
-    TypeFamilies 
+{-# LANGUAGE
+    TypeFamilies
   , ConstraintKinds
   , MultiParamTypeClasses
   , TemplateHaskell
-  , DeriveFunctor
-  , DeriveFoldable
   , DeriveTraversable
   #-}
 -----------------------------------------------------------------------------
@@ -17,13 +15,13 @@
 -- Stability   :  experimental
 -- Portability :  non-portable
 -----------------------------------------------------------------------------
-module Data.Algebra 
+module Data.Algebra
   ( deriveInstance
   , deriveInstanceWith
     -- * Classes
   , Algebra(..)
   , algebraA
-  , Signature(..)
+  , Signature
   , AlgebraSignature(..)
   ) where
 

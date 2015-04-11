@@ -1,5 +1,5 @@
 name:                algebraic-classes
-version:             0.5.2
+version:             0.6
 synopsis:            Conversions between algebraic classes and F-algebras.
 description:         Algebraic classes are type classes where all the methods return a value of the same type, which is also the class parameter.
                      Examples from @base@ are @Num@ and @Monoid@.
@@ -27,14 +27,19 @@ cabal-version:       >=1.8
 
 extra-source-files:
   examples/*.hs
+  CHANGELOG
 
 library
   exposed-modules:
     Data.Algebra
     Data.Algebra.TH
     Data.Algebra.Internal
-  
+
   build-depends:
-      base == 4.7.*
+      base == 4.8.*
     , syb == 0.4.*
-    , template-haskell == 2.9.0.*
+    , template-haskell == 2.10.0.*
+
+source-repository head
+  type:     git
+  location: git://github.com/sjoerdvisscher/algebraic-classes.git

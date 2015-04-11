@@ -1,5 +1,5 @@
-{-# LANGUAGE 
-    TypeFamilies 
+{-# LANGUAGE
+    TypeFamilies
   , ConstraintKinds
   , MultiParamTypeClasses
   , FlexibleInstances
@@ -18,11 +18,9 @@
 module Data.Algebra.Internal where
 
 import GHC.Exts (Constraint)
-import Control.Applicative
-import Data.Traversable (Traversable(..))
+import Control.Applicative (Const(..))
 
 import GHC.Conc (STM)
-import Data.Monoid
 import Control.Arrow ((&&&))
 
 -- | The signature datatype for the class @c@.
@@ -41,13 +39,13 @@ class Algebra f a where
   -- > instance (Class f m, Class f n) => Algebra f (m, n) where
   -- >   algebra fmn = (evaluate (fmap fst fmn), evaluate (fmap snd fmn))
   algebra :: AlgebraSignature f => f a -> a
-  
+
 -- | If you just want to applicatively lift existing instances, you can use this default implementation of `algebra`.
 algebraA :: (Applicative g, Class f b, AlgebraSignature f) => f (g b) -> g b
 algebraA = fmap evaluate . sequenceA
 
 instance Algebra f () where
-  algebra = const () 
+  algebra = const ()
 instance (Class f m, Class f n) => Algebra f (m, n) where
   algebra = evaluate . fmap fst &&& evaluate . fmap snd
 
