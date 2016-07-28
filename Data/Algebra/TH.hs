@@ -28,7 +28,7 @@ import Data.Traversable (for)
 import Control.Arrow ((***))
 import Data.Monoid (Endo(..))
 
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Char (isAlpha)
 import Language.Haskell.TH
 import Data.Generics (Data, everywhere, mkT)
@@ -58,8 +58,9 @@ getSignatureInfo name = do
       (SigD nm (ForallT [tv'] _ tp)) -> do
         let tvn' = tvName tv'
         dec <- reify nm
+        fty <- fromMaybe defaultFixity <$> reifyFixity nm
         case dec of
-          ClassOpI _ _ _ fty ->
+          ClassOpI _ _ _ ->
             return $ case buildOperation tvn' tp of
               Just (ar, mkCon) ->
                 let opName = changeName addPrefix nm
@@ -155,13 +156,13 @@ deriveInstanceWith'' addSignature ctx className typeName dec = do
           (FunD fName [Clause (map VarP args) (NormalB (AppE (VarE 'algebra) (foldl (\e arg -> AppE e (VarE arg)) (ConE opName) args))) []])
           snd mgiven
       | OperationTH fName opName ar _ _ <- operations s, let mgiven = lookup (nameBase fName) givenLU, let args = mkArgList ar ]
-  (++ [InstanceD ctx (AppT (ConT className) typeName) impl]) <$>
+  (++ [InstanceD Nothing ctx (AppT (ConT className) typeName) impl]) <$>
     if addSignature then deriveSignature className else return []
 
 buildSignatureDataType :: SignatureTH -> [Dec]
 buildSignatureDataType s =
-  [DataD [] (signatureName s) [PlainTV (typeVarName s)] (constructor <$> operations s)
-    [''Functor, ''Foldable, ''Traversable, ''Eq, ''Ord]]
+  [DataD [] (signatureName s) [PlainTV (typeVarName s)] Nothing (constructor <$> operations s)
+    (map ConT [''Functor, ''Foldable, ''Traversable, ''Eq, ''Ord])]
 
 signatureInstances :: Name -> SignatureTH -> [Dec]
 signatureInstances nm s = [asInst, showInst, sigTFInst]
@@ -172,7 +173,7 @@ signatureInstances nm s = [asInst, showInst, sigTFInst]
     asClauses =
       [ Clause [ConP opName (map VarP args)] (NormalB (foldl (\e arg -> AppE e (VarE arg)) (VarE fName) args)) []
       | OperationTH fName opName ar _ _ <- operations s, let args = mkArgList ar ]
-    asInst = InstanceD [] (AppT (ConT ''AlgebraSignature) signature) [typeInst, FunD 'evaluate asClauses]
+    asInst = InstanceD Nothing [] (AppT (ConT ''AlgebraSignature) signature) [typeInst, FunD 'evaluate asClauses]
     showsPrecClauses =
       [ Clause [VarP d, ConP opName (map VarP args)] (NormalB $ createShowsPrec d (nameBase fName) prec args) []
       | OperationTH fName opName ar _ (Fixity prec _) <- operations s, let args = mkArgList ar, let d = mkName "d" ]
@@ -190,12 +191,12 @@ signatureInstances nm s = [asInst, showInst, sigTFInst]
     addArg expr arg =
       Just $ InfixE expr (VarE '(.)) (Just (InfixE (Just (AppE (VarE 'showChar) (LitE (CharL ' ')))) (VarE '(.))
         (Just (AppE (AppE (VarE 'showsPrec) (LitE (IntegerL 11))) (VarE arg)))))
-    showInst = InstanceD [AppT (ConT ''Show) a] (AppT (ConT ''Show) (AppT signature a)) [FunD 'showsPrec showsPrecClauses]
+    showInst = InstanceD Nothing [AppT (ConT ''Show) a] (AppT (ConT ''Show) (AppT signature a)) [FunD 'showsPrec showsPrecClauses]
     a = VarT $ mkName "a"
 
 buildOperation :: Name -> Type -> Maybe (Int, Name -> Con)
 buildOperation nm (VarT nm') = if nm == nm' then Just (0, \opName -> NormalC opName []) else Nothing
-buildOperation nm (AppT (AppT ArrowT h) t) = ((+1) *** fmap (prependC (NotStrict, h))) <$> buildOperation nm t
+buildOperation nm (AppT (AppT ArrowT h) t) = ((+1) *** fmap (prependC h)) <$> buildOperation nm t
 buildOperation _ _ = Nothing
 
 changeName :: (String -> String) -> Name -> Name
@@ -219,8 +220,8 @@ rename :: Name -> Name -> Name -> Name
 rename a b c | a == c = b
 rename _ _ t = t
 
-prependC :: (Strict, Type) -> Con -> Con
-prependC st (NormalC nm sts) = NormalC nm (st:sts)
+prependC :: Type -> Con -> Con
+prependC st (NormalC nm sts) = NormalC nm ((Bang NoSourceUnpackedness NoSourceStrictness, st):sts)
 
 tvName :: TyVarBndr -> Name
 tvName (PlainTV nm) = nm

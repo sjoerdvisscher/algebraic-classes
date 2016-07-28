@@ -1,3 +1,9 @@
+0.6 -> 0.7
+- Update for GHC 8.0
+  - Updated to base-4.9.0.0
+  - Updated to template-haskell-2.11.0.0
+  - Updated to syb-0.6
+
 0.5.2 -> 0.6
 - Update for GHC 7.10
   - Updated to base-4.8.0.0
