@@ -162,7 +162,7 @@ deriveInstanceWith'' addSignature ctx className typeName dec = do
 buildSignatureDataType :: SignatureTH -> [Dec]
 buildSignatureDataType s =
   [DataD [] (signatureName s) [PlainTV (typeVarName s)] Nothing (constructor <$> operations s)
-    (map ConT [''Functor, ''Foldable, ''Traversable, ''Eq, ''Ord])]
+    [DerivClause Nothing (map ConT [''Functor, ''Foldable, ''Traversable, ''Eq, ''Ord])]]
 
 signatureInstances :: Name -> SignatureTH -> [Dec]
 signatureInstances nm s = [asInst, showInst, sigTFInst]
