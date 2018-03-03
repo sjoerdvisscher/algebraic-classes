@@ -1,3 +1,6 @@
+0.8 -> 0.9
+- Support for algebraic classes that have algebraic superclasses.
+
 0.7.1 -> 0.8
 - Update for GHC 8.2
   - Updated to base-4.10.0.0

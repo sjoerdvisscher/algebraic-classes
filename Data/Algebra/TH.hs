@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskell, TupleSections #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Data.Algebra.TH
@@ -13,10 +13,12 @@ module Data.Algebra.TH
   ( deriveInstance
   , deriveInstanceWith
   , deriveInstanceWith_skipSignature
+  , deriveSuperclassInstances
   , deriveSignature
   -- * Possibly useful internals
   , SignatureTH(..)
   , OperationTH(..)
+  , SuperclassTH(..)
   , getSignatureInfo
   , buildSignatureDataType
   , signatureInstances
@@ -30,6 +32,8 @@ import Data.Monoid (Endo(..))
 
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Char (isAlpha)
+import Data.List (nubBy)
+import Data.Function (on)
 import Language.Haskell.TH
 import Data.Generics (Data, everywhere, mkT)
 
@@ -38,6 +42,7 @@ data SignatureTH = SignatureTH
   { signatureName :: Name
   , typeVarName :: Name
   , operations :: [OperationTH]
+  , superclasses :: [SuperclassTH]
   }
 
 data OperationTH = OperationTH
@@ -47,11 +52,17 @@ data OperationTH = OperationTH
   , constructor :: Con
   , fixity :: Fixity
   }
+  
+data SuperclassTH = SuperclassTH
+  { superclassName :: Name
+  , constrName :: Name
+  , signatureTH :: SignatureTH
+  }
 
 getSignatureInfo :: Name -> Q SignatureTH
 getSignatureInfo name = do
-  ClassI (ClassD _ _ _ _ decs) _ <- reify name
-  let tv = mkName "a"
+  ClassI (ClassD ctx _ [tyvar] _ decs) _ <- reify name
+  let tv = tvName tyvar
   let sigName = changeName (++ "Signature") name
   ops <- for decs $ \sig ->
     case sig of
@@ -69,7 +80,15 @@ getSignatureInfo name = do
           _ -> fail $ "No support for " ++ show dec
       SigD{} -> fail $ "No support for " ++ show sig
       _ -> return Nothing
-  return $ SignatureTH sigName tv $ catMaybes ops
+  scs <- for ctx $ \ty ->
+    case ty of
+      (AppT (ConT scName) (VarT tv')) | tv == tv' -> do
+        s <- getSignatureInfo scName
+        case s of
+          SignatureTH _ _ [] [] -> return Nothing
+          _ -> return $ Just $ SuperclassTH scName (changeName (addScPrefix name) scName) s
+      _ -> return Nothing
+  return $ SignatureTH sigName tv (catMaybes ops) (catMaybes scs)
 
 -- | Derive a signature for an algebraic class.
 --   For example:
@@ -99,10 +118,14 @@ getSignatureInfo name = do
 --
 --   This will do nothing if there is already a signature for the class in scope.
 deriveSignature :: Name -> Q [Dec]
-deriveSignature className = do
-  mName <- lookupTypeName (nameBase className ++ "Signature")
+deriveSignature = fmap ((>>= snd) . nubBy ((==) `on` fst)) . deriveSignature'
+  
+deriveSignature' :: Name -> Q [(Name, [Dec])]
+deriveSignature' className = do
   s <- getSignatureInfo className
-  return $ if mName == Nothing then buildSignatureDataType s ++ signatureInstances className s else []
+  mName <- lookupTypeName (nameBase $ signatureName s)
+  scDecs <- concat <$> traverse (deriveSignature' . superclassName) (superclasses s)
+  return $ if mName == Nothing then (className, buildSignatureDataType s ++ signatureInstances className s) : scDecs else []
 
 -- | Derive an instance for an algebraic class.
 --   For example:
@@ -133,17 +156,48 @@ deriveInstanceWith = deriveInstanceWith' True
 deriveInstanceWith_skipSignature :: Q Type -> Q [Dec] -> Q [Dec]
 deriveInstanceWith_skipSignature = deriveInstanceWith' False
 
+-- | Derive the instances for the superclasses too, all using the same context.
+--   Usually you'd want to do this manually since you can often give a stricter context, for example:
+-- 
+-- > deriveSuperclassInstances [t| (Fractional m, Fractional n) => Fractional (m, n) |]
+-- 
+--   will derive an instance @(Fractional m, Fractional n) => Num (m, n)@ while the instance only
+--   needs @(Num m, Num n)@.
+deriveSuperclassInstances :: Q Type -> Q [Dec]
+deriveSuperclassInstances qtyp = do
+  typ <- qtyp
+  case typ of
+    ForallT _ ctx (AppT (ConT className) typeName) ->
+      deriveSuperclassInstances' ctx className typeName
+    AppT (ConT className) typeName -> 
+      deriveSuperclassInstances' [] className typeName
+
+deriveSuperclassInstances' :: Cxt -> Name -> Type -> Q [Dec]
+deriveSuperclassInstances' ctx className typeName = do
+  s <- getSignatureInfo className
+  concatMap snd <$> deriveSuperclassInstances'' s ctx typeName id
+
+deriveSuperclassInstances'' :: SignatureTH -> Cxt -> Type -> (Exp -> Exp) -> Q [(Name, [Dec])]
+deriveSuperclassInstances'' s ctx typeName wrap =
+  nubBy ((==) `on` fst) . concat <$> traverse 
+    (\(SuperclassTH scName conName s') -> do
+      dec <- deriveInstanceWith'' False ctx scName typeName (wrap . AppE (ConE conName)) (return [])
+      scs <- deriveSuperclassInstances'' s' ctx typeName (wrap . AppE (ConE conName))
+      return $ (scName, dec) :  scs)
+    (superclasses s)
+  
+    
 deriveInstanceWith' :: Bool -> Q Type -> Q [Dec] -> Q [Dec]
 deriveInstanceWith' addSignature qtyp dec = do
   typ <- qtyp
   case typ of
     ForallT _ ctx (AppT (ConT className) typeName) ->
-      deriveInstanceWith'' addSignature ctx className typeName dec
+      deriveInstanceWith'' addSignature ctx className typeName id dec
     AppT (ConT className) typeName ->
-      deriveInstanceWith'' addSignature [] className typeName dec
+      deriveInstanceWith'' addSignature [] className typeName id dec
 
-deriveInstanceWith'' :: Bool -> Cxt -> Name -> Type -> Q [Dec] -> Q [Dec]
-deriveInstanceWith'' addSignature ctx className typeName dec = do
+deriveInstanceWith'' :: Bool -> Cxt -> Name -> Type -> (Exp -> Exp) -> Q [Dec] -> Q [Dec]
+deriveInstanceWith'' addSignature ctx className typeName wrap dec = do
   given <- dec
   s <- getSignatureInfo className
   let
@@ -153,7 +207,7 @@ deriveInstanceWith'' addSignature ctx className typeName dec = do
     renamer = renameAll [ (nm, nm') | (b, (nm, _)) <- givenLU, nm' <- functionName <$> operations s, nameBase nm' == b ]
     impl =
       [ maybe
-          (FunD fName [Clause (map VarP args) (NormalB (AppE (VarE 'algebra) (foldl (\e arg -> AppE e (VarE arg)) (ConE opName) args))) []])
+          (FunD fName [Clause (map VarP args) (NormalB (AppE (VarE 'algebra) (wrap (foldl (\e arg -> AppE e (VarE arg)) (ConE opName) args)))) []])
           snd mgiven
       | OperationTH fName opName ar _ _ <- operations s, let mgiven = lookup (nameBase fName) givenLU, let args = mkArgList ar ]
   (++ [InstanceD Nothing ctx (AppT (ConT className) typeName) impl]) <$>
@@ -161,7 +215,8 @@ deriveInstanceWith'' addSignature ctx className typeName dec = do
 
 buildSignatureDataType :: SignatureTH -> [Dec]
 buildSignatureDataType s =
-  [DataD [] (signatureName s) [PlainTV (typeVarName s)] Nothing (constructor <$> operations s)
+  [DataD [] (signatureName s) [PlainTV (typeVarName s)] Nothing 
+    ((constructor <$> operations s) ++ (buildSuperclassCon (typeVarName s) <$> superclasses s))
     [DerivClause Nothing (map ConT [''Functor, ''Foldable, ''Traversable, ''Eq, ''Ord])]]
 
 signatureInstances :: Name -> SignatureTH -> [Dec]
@@ -173,10 +228,16 @@ signatureInstances nm s = [asInst, showInst, sigTFInst]
     asClauses =
       [ Clause [ConP opName (map VarP args)] (NormalB (foldl (\e arg -> AppE e (VarE arg)) (VarE fName) args)) []
       | OperationTH fName opName ar _ _ <- operations s, let args = mkArgList ar ]
-    asInst = InstanceD Nothing [] (AppT (ConT ''AlgebraSignature) signature) [typeInst, FunD 'evaluate asClauses]
+    asScClauses = 
+      [ Clause [ConP conName [(VarP v)]] (NormalB $ AppE (VarE 'evaluate) (VarE v)) []
+      | SuperclassTH _ conName _ <- superclasses s, let v = mkName "v"]
+    asInst = InstanceD Nothing [] (AppT (ConT ''AlgebraSignature) signature) [typeInst, FunD 'evaluate (asClauses ++ asScClauses)]
     showsPrecClauses =
       [ Clause [VarP d, ConP opName (map VarP args)] (NormalB $ createShowsPrec d (nameBase fName) prec args) []
       | OperationTH fName opName ar _ (Fixity prec _) <- operations s, let args = mkArgList ar, let d = mkName "d" ]
+    showsPrecScClauses = 
+      [ Clause [VarP d, ConP conName [(VarP v)]] (NormalB $ AppE (AppE (VarE 'showsPrec) (VarE d)) (VarE v)) []
+      | SuperclassTH _ conName _ <- superclasses s, let d = mkName "d", let v = mkName "v"]
     createShowsPrec d name prec [u,v] | isOperator name =
       InfixE (Just (AppE (VarE 'showParen) (InfixE (Just (VarE d)) (VarE '(>)) (Just (LitE (IntegerL prec')))))) (VarE '($))
         (Just (InfixE (Just (AppE (AppE (VarE 'showsPrec) (LitE (IntegerL prec1))) (VarE u))) (VarE '(.))
@@ -191,7 +252,9 @@ signatureInstances nm s = [asInst, showInst, sigTFInst]
     addArg expr arg =
       Just $ InfixE expr (VarE '(.)) (Just (InfixE (Just (AppE (VarE 'showChar) (LitE (CharL ' ')))) (VarE '(.))
         (Just (AppE (AppE (VarE 'showsPrec) (LitE (IntegerL 11))) (VarE arg)))))
-    showInst = InstanceD Nothing [AppT (ConT ''Show) a] (AppT (ConT ''Show) (AppT signature a)) [FunD 'showsPrec showsPrecClauses]
+    showInst = InstanceD Nothing [AppT (ConT ''Show) a] 
+      (AppT (ConT ''Show) (AppT signature a)) 
+      [FunD 'showsPrec (showsPrecClauses ++ showsPrecScClauses)]
     a = VarT $ mkName "a"
 
 buildOperation :: Name -> Type -> Maybe (Int, Name -> Con)
@@ -199,12 +262,18 @@ buildOperation nm (VarT nm') = if nm == nm' then Just (0, \opName -> NormalC opN
 buildOperation nm (AppT (AppT ArrowT h) t) = ((+1) *** fmap (prependC h)) <$> buildOperation nm t
 buildOperation _ _ = Nothing
 
+buildSuperclassCon :: Name -> SuperclassTH -> Con
+buildSuperclassCon nm s = NormalC (constrName s) [(bangDef, AppT (ConT (signatureName $ signatureTH s)) (VarT nm))]
+
 changeName :: (String -> String) -> Name -> Name
 changeName f = mkName . f . nameBase
 
 addPrefix :: String -> String
 addPrefix s | isOperator s = ":%:" ++ s
 addPrefix s = "Op_" ++ s
+
+addScPrefix :: Name -> String -> String
+addScPrefix nm s = "Sc_" ++ nameBase nm ++ "_" ++ s
 
 isOperator :: String -> Bool
 isOperator (c:_) = not (isAlpha c) && c /= '_'
@@ -221,7 +290,10 @@ rename a b c | a == c = b
 rename _ _ t = t
 
 prependC :: Type -> Con -> Con
-prependC st (NormalC nm sts) = NormalC nm ((Bang NoSourceUnpackedness NoSourceStrictness, st):sts)
+prependC st (NormalC nm sts) = NormalC nm ((bangDef, st):sts)
+
+bangDef :: Bang
+bangDef = Bang NoSourceUnpackedness NoSourceStrictness
 
 tvName :: TyVarBndr -> Name
 tvName (PlainTV nm) = nm

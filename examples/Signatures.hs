@@ -4,4 +4,4 @@
 import Data.Algebra.TH
 
 deriveSignature ''Monoid
-deriveSignature ''Num
+deriveSignature ''Fractional
