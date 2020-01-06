@@ -18,7 +18,8 @@
 module Data.Algebra.Internal where
 
 import GHC.Exts (Constraint)
-import Control.Applicative (Const(..))
+import Control.Applicative (Const)
+import Data.Monoid (Ap)
 
 import GHC.Conc (STM)
 import Control.Arrow ((&&&))
@@ -54,4 +55,5 @@ instance Class f b => Algebra f (IO b) where algebra = algebraA
 instance Class f b => Algebra f (Maybe b) where algebra = algebraA
 instance Class f b => Algebra f (Either a b) where algebra = algebraA
 instance Class f b => Algebra f (STM b) where algebra = algebraA
+instance (Class f b, Applicative g) => Algebra f (Ap g b) where algebra = algebraA
 instance (Monoid m, Class f b) => Algebra f (Const m b) where algebra = algebraA
