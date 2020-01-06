@@ -52,7 +52,7 @@ data OperationTH = OperationTH
   , constructor :: Con
   , fixity :: Fixity
   }
-  
+
 data SuperclassTH = SuperclassTH
   { superclassName :: Name
   , constrName :: Name
@@ -119,7 +119,7 @@ getSignatureInfo name = do
 --   This will do nothing if there is already a signature for the class in scope.
 deriveSignature :: Name -> Q [Dec]
 deriveSignature = fmap ((>>= snd) . nubBy ((==) `on` fst)) . deriveSignature'
-  
+
 deriveSignature' :: Name -> Q [(Name, [Dec])]
 deriveSignature' className = do
   s <- getSignatureInfo className
@@ -158,9 +158,9 @@ deriveInstanceWith_skipSignature = deriveInstanceWith' False
 
 -- | Derive the instances for the superclasses too, all using the same context.
 --   Usually you'd want to do this manually since you can often give a stricter context, for example:
--- 
+--
 -- > deriveSuperclassInstances [t| (Fractional m, Fractional n) => Fractional (m, n) |]
--- 
+--
 --   will derive an instance @(Fractional m, Fractional n) => Num (m, n)@ while the instance only
 --   needs @(Num m, Num n)@.
 deriveSuperclassInstances :: Q Type -> Q [Dec]
@@ -169,7 +169,7 @@ deriveSuperclassInstances qtyp = do
   case typ of
     ForallT _ ctx (AppT (ConT className) typeName) ->
       deriveSuperclassInstances' ctx className typeName
-    AppT (ConT className) typeName -> 
+    AppT (ConT className) typeName ->
       deriveSuperclassInstances' [] className typeName
 
 deriveSuperclassInstances' :: Cxt -> Name -> Type -> Q [Dec]
@@ -179,14 +179,14 @@ deriveSuperclassInstances' ctx className typeName = do
 
 deriveSuperclassInstances'' :: SignatureTH -> Cxt -> Type -> (Exp -> Exp) -> Q [(Name, [Dec])]
 deriveSuperclassInstances'' s ctx typeName wrap =
-  nubBy ((==) `on` fst) . concat <$> traverse 
+  nubBy ((==) `on` fst) . concat <$> traverse
     (\(SuperclassTH scName conName s') -> do
       dec <- deriveInstanceWith'' False ctx scName typeName (wrap . AppE (ConE conName)) (return [])
       scs <- deriveSuperclassInstances'' s' ctx typeName (wrap . AppE (ConE conName))
       return $ (scName, dec) :  scs)
     (superclasses s)
-  
-    
+
+
 deriveInstanceWith' :: Bool -> Q Type -> Q [Dec] -> Q [Dec]
 deriveInstanceWith' addSignature qtyp dec = do
   typ <- qtyp
@@ -215,7 +215,7 @@ deriveInstanceWith'' addSignature ctx className typeName wrap dec = do
 
 buildSignatureDataType :: SignatureTH -> [Dec]
 buildSignatureDataType s =
-  [DataD [] (signatureName s) [PlainTV (typeVarName s)] Nothing 
+  [DataD [] (signatureName s) [PlainTV (typeVarName s)] Nothing
     ((constructor <$> operations s) ++ (buildSuperclassCon (typeVarName s) <$> superclasses s))
     [DerivClause Nothing (map ConT [''Functor, ''Foldable, ''Traversable, ''Eq, ''Ord])]]
 
@@ -223,19 +223,19 @@ signatureInstances :: Name -> SignatureTH -> [Dec]
 signatureInstances nm s = [asInst, showInst, sigTFInst]
   where
     signature = ConT (signatureName s)
-    sigTFInst = TySynInstD ''Signature (TySynEqn [ConT nm] signature)
-    typeInst = TySynInstD ''Class (TySynEqn [signature] (ConT nm))
+    sigTFInst = TySynInstD (TySynEqn Nothing (AppT (ConT ''Signature) (ConT nm)) signature)
+    typeInst = TySynInstD (TySynEqn Nothing (AppT (ConT ''Class) signature) (ConT nm))
     asClauses =
       [ Clause [ConP opName (map VarP args)] (NormalB (foldl (\e arg -> AppE e (VarE arg)) (VarE fName) args)) []
       | OperationTH fName opName ar _ _ <- operations s, let args = mkArgList ar ]
-    asScClauses = 
+    asScClauses =
       [ Clause [ConP conName [(VarP v)]] (NormalB $ AppE (VarE 'evaluate) (VarE v)) []
       | SuperclassTH _ conName _ <- superclasses s, let v = mkName "v"]
     asInst = InstanceD Nothing [] (AppT (ConT ''AlgebraSignature) signature) [typeInst, FunD 'evaluate (asClauses ++ asScClauses)]
     showsPrecClauses =
       [ Clause [VarP d, ConP opName (map VarP args)] (NormalB $ createShowsPrec d (nameBase fName) prec args) []
       | OperationTH fName opName ar _ (Fixity prec _) <- operations s, let args = mkArgList ar, let d = mkName "d" ]
-    showsPrecScClauses = 
+    showsPrecScClauses =
       [ Clause [VarP d, ConP conName [(VarP v)]] (NormalB $ AppE (AppE (VarE 'showsPrec) (VarE d)) (VarE v)) []
       | SuperclassTH _ conName _ <- superclasses s, let d = mkName "d", let v = mkName "v"]
     createShowsPrec d name prec [u,v] | isOperator name =
@@ -252,8 +252,8 @@ signatureInstances nm s = [asInst, showInst, sigTFInst]
     addArg expr arg =
       Just $ InfixE expr (VarE '(.)) (Just (InfixE (Just (AppE (VarE 'showChar) (LitE (CharL ' ')))) (VarE '(.))
         (Just (AppE (AppE (VarE 'showsPrec) (LitE (IntegerL 11))) (VarE arg)))))
-    showInst = InstanceD Nothing [AppT (ConT ''Show) a] 
-      (AppT (ConT ''Show) (AppT signature a)) 
+    showInst = InstanceD Nothing [AppT (ConT ''Show) a]
+      (AppT (ConT ''Show) (AppT signature a))
       [FunD 'showsPrec (showsPrecClauses ++ showsPrecScClauses)]
     a = VarT $ mkName "a"
 
