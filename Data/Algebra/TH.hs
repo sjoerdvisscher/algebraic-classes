@@ -66,19 +66,8 @@ getSignatureInfo name = do
   let sigName = changeName (++ "Signature") name
   ops <- for decs $ \sig ->
     case sig of
-      (SigD nm (ForallT [tv'] _ tp)) -> do
-        let tvn' = tvName tv'
-        dec <- reify nm
-        fty <- fromMaybe defaultFixity <$> reifyFixity nm
-        case dec of
-          ClassOpI _ _ _ ->
-            return $ case buildOperation tvn' tp of
-              Just (ar, mkCon) ->
-                let opName = changeName addPrefix nm
-                in Just $ OperationTH nm opName ar (everywhere (mkT (rename tvn' tv)) (mkCon opName)) fty
-              _ -> Nothing
-          _ -> fail $ "No support for " ++ show dec
-      SigD{} -> fail $ "No support for " ++ show sig
+      SigD nm (ForallT [tv'] _ tp) -> mkOp nm tp tv (tvName tv')
+      SigD nm tp -> mkOp nm tp tv tv
       _ -> return Nothing
   scs <- for ctx $ \ty ->
     case ty of
@@ -89,6 +78,18 @@ getSignatureInfo name = do
           _ -> return $ Just $ SuperclassTH scName (changeName (addScPrefix name) scName) s
       _ -> return Nothing
   return $ SignatureTH sigName tv (catMaybes ops) (catMaybes scs)
+  where
+    mkOp nm tp tv tv' = do
+      dec <- reify nm
+      fty <- fromMaybe defaultFixity <$> reifyFixity nm
+      case dec of
+        ClassOpI _ _ _ ->
+          return $ case buildOperation tv' tp of
+            Just (ar, mkCon) ->
+              let opName = changeName addPrefix nm
+              in Just $ OperationTH nm opName ar (everywhere (mkT (rename tv' tv)) (mkCon opName)) fty
+            _ -> Nothing
+        _ -> fail $ "No support for " ++ show dec
 
 -- | Derive a signature for an algebraic class.
 --   For example:
