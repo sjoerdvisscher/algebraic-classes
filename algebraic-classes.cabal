@@ -36,9 +36,9 @@ library
     Data.Algebra.Internal
 
   build-depends:
-      base >= 4.13 && < 4.14
+      base >= 4.13 && < 4.15
     , syb == 0.7.*
-    , template-haskell >= 2.15 && < 2.16
+    , template-haskell >= 2.15 && < 2.17
 
 source-repository head
   type:     git

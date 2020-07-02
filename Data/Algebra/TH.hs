@@ -1,4 +1,6 @@
-{-# LANGUAGE TemplateHaskell, TupleSections #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TemplateHaskell #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Data.Algebra.TH
@@ -64,26 +66,24 @@ getSignatureInfo name = do
   ClassI (ClassD ctx _ [tyvar] _ decs) _ <- reify name
   let tv = tvName tyvar
   let sigName = changeName (++ "Signature") name
-  ops <- for decs $ \sig ->
-    case sig of
-      SigD nm (ForallT [tv'] _ tp) -> mkOp nm tp tv (tvName tv')
-      SigD nm tp -> mkOp nm tp tv tv
-      _ -> return Nothing
-  scs <- for ctx $ \ty ->
-    case ty of
-      (AppT (ConT scName) (VarT tv')) | tv == tv' -> do
-        s <- getSignatureInfo scName
-        case s of
-          SignatureTH _ _ [] [] -> return Nothing
-          _ -> return $ Just $ SuperclassTH scName (changeName (addScPrefix name) scName) s
-      _ -> return Nothing
+  ops <- for decs $ \case
+    SigD nm (ForallT [tv'] _ tp) -> mkOp nm tp tv (tvName tv')
+    SigD nm tp -> mkOp nm tp tv tv
+    _ -> return Nothing
+  scs <- for ctx $ \case
+    (AppT (ConT scName) (VarT tv')) | tv == tv' -> do
+      s <- getSignatureInfo scName
+      case s of
+        SignatureTH _ _ [] [] -> return Nothing
+        _ -> return $ Just $ SuperclassTH scName (changeName (addScPrefix name) scName) s
+    _ -> return Nothing
   return $ SignatureTH sigName tv (catMaybes ops) (catMaybes scs)
   where
     mkOp nm tp tv tv' = do
       dec <- reify nm
       fty <- fromMaybe defaultFixity <$> reifyFixity nm
       case dec of
-        ClassOpI _ _ _ ->
+        ClassOpI{} ->
           return $ case buildOperation tv' tp of
             Just (ar, mkCon) ->
               let opName = changeName addPrefix nm
