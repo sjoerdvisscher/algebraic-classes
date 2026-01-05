@@ -1,3 +1,8 @@
+algebraic-classes
+=================
+
+[![Hackage](https://img.shields.io/hackage/v/algebraic-classes.svg)](https://hackage.haskell.org/package/algebraic-classes) [![Build Status](https://github.com/sjoerdvisscher/algebraic-classes/workflows/Haskell-CI/badge.svg)](https://github.com/sjoerdvisscher/algebraic-classes/actions?query=workflow%3AHaskell-CI)
+
 Algebraic classes are type classes where all the methods return a value of the same type, which is also the class parameter.
 Examples from `base` are `Num` and `Monoid`.
 

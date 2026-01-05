@@ -1,3 +1,6 @@
+0.9.4 -> 0.10
+- Update for GHC 9.6 through 9.14
+
 0.9.2 -> 0.9.4
 - Update for GHC 8.8
   - Updated to base-4.13.0.0

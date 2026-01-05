@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -64,10 +65,10 @@ data SuperclassTH = SuperclassTH
 getSignatureInfo :: Name -> Q SignatureTH
 getSignatureInfo name = do
   ClassI (ClassD ctx _ [tyvar] _ decs) _ <- reify name
-  let tv = tvName tyvar
+  let tv = tyVarName tyvar
   let sigName = changeName (++ "Signature") name
   ops <- for decs $ \case
-    SigD nm (ForallT [tv'] _ tp) -> mkOp nm tp tv (tvName tv')
+    SigD nm (ForallT [tv'] _ tp) -> mkOp nm tp tv (tyVarName tv')
     SigD nm tp -> mkOp nm tp tv tv
     _ -> return Nothing
   scs <- for ctx $ \case
@@ -172,6 +173,7 @@ deriveSuperclassInstances qtyp = do
       deriveSuperclassInstances' ctx className typeName
     AppT (ConT className) typeName ->
       deriveSuperclassInstances' [] className typeName
+    s -> error $ "Unsupported type: " <> show s
 
 deriveSuperclassInstances' :: Cxt -> Name -> Type -> Q [Dec]
 deriveSuperclassInstances' ctx className typeName = do
@@ -196,6 +198,7 @@ deriveInstanceWith' addSignature qtyp dec = do
       deriveInstanceWith'' addSignature ctx className typeName id dec
     AppT (ConT className) typeName ->
       deriveInstanceWith'' addSignature [] className typeName id dec
+    s -> error $ "Unsupported type: " <> show s
 
 deriveInstanceWith'' :: Bool -> Cxt -> Name -> Type -> (Exp -> Exp) -> Q [Dec] -> Q [Dec]
 deriveInstanceWith'' addSignature ctx className typeName wrap dec = do
@@ -214,9 +217,15 @@ deriveInstanceWith'' addSignature ctx className typeName wrap dec = do
   (++ [InstanceD Nothing ctx (AppT (ConT className) typeName) impl]) <$>
     if addSignature then deriveSignature className else return []
 
+#if MIN_VERSION_template_haskell(2,21,0)
+#else
+bndrReq :: ()
+bndrReq = ()
+#endif
+
 buildSignatureDataType :: SignatureTH -> [Dec]
 buildSignatureDataType s =
-  [DataD [] (signatureName s) [PlainTV (typeVarName s)] Nothing
+  [DataD [] (signatureName s) [PlainTV (typeVarName s) bndrReq] Nothing
     ((constructor <$> operations s) ++ (buildSuperclassCon (typeVarName s) <$> superclasses s))
     [DerivClause Nothing (map ConT [''Functor, ''Foldable, ''Traversable, ''Eq, ''Ord])]]
 
@@ -227,17 +236,17 @@ signatureInstances nm s = [asInst, showInst, sigTFInst]
     sigTFInst = TySynInstD (TySynEqn Nothing (AppT (ConT ''Signature) (ConT nm)) signature)
     typeInst = TySynInstD (TySynEqn Nothing (AppT (ConT ''Class) signature) (ConT nm))
     asClauses =
-      [ Clause [ConP opName (map VarP args)] (NormalB (foldl (\e arg -> AppE e (VarE arg)) (VarE fName) args)) []
+      [ Clause [ConP opName [] (map VarP args)] (NormalB (foldl (\e arg -> AppE e (VarE arg)) (VarE fName) args)) []
       | OperationTH fName opName ar _ _ <- operations s, let args = mkArgList ar ]
     asScClauses =
-      [ Clause [ConP conName [(VarP v)]] (NormalB $ AppE (VarE 'evaluate) (VarE v)) []
+      [ Clause [ConP conName [] [(VarP v)]] (NormalB $ AppE (VarE 'evaluate) (VarE v)) []
       | SuperclassTH _ conName _ <- superclasses s, let v = mkName "v"]
     asInst = InstanceD Nothing [] (AppT (ConT ''AlgebraSignature) signature) [typeInst, FunD 'evaluate (asClauses ++ asScClauses)]
     showsPrecClauses =
-      [ Clause [VarP d, ConP opName (map VarP args)] (NormalB $ createShowsPrec d (nameBase fName) prec args) []
+      [ Clause [VarP d, ConP opName [] (map VarP args)] (NormalB $ createShowsPrec d (nameBase fName) prec args) []
       | OperationTH fName opName ar _ (Fixity prec _) <- operations s, let args = mkArgList ar, let d = mkName "d" ]
     showsPrecScClauses =
-      [ Clause [VarP d, ConP conName [(VarP v)]] (NormalB $ AppE (AppE (VarE 'showsPrec) (VarE d)) (VarE v)) []
+      [ Clause [VarP d, ConP conName [] [(VarP v)]] (NormalB $ AppE (AppE (VarE 'showsPrec) (VarE d)) (VarE v)) []
       | SuperclassTH _ conName _ <- superclasses s, let d = mkName "d", let v = mkName "v"]
     createShowsPrec d name prec [u,v] | isOperator name =
       InfixE (Just (AppE (VarE 'showParen) (InfixE (Just (VarE d)) (VarE '(>)) (Just (LitE (IntegerL prec')))))) (VarE '($))
@@ -292,10 +301,11 @@ rename _ _ t = t
 
 prependC :: Type -> Con -> Con
 prependC st (NormalC nm sts) = NormalC nm ((bangDef, st):sts)
+prependC _ s = error $ "Unsupported type: " <> show s
 
 bangDef :: Bang
 bangDef = Bang NoSourceUnpackedness NoSourceStrictness
 
-tvName :: TyVarBndr -> Name
-tvName (PlainTV nm) = nm
-tvName (KindedTV nm _) = nm
+tyVarName :: TyVarBndr s -> Name
+tyVarName (PlainTV n _) = n
+tyVarName (KindedTV n _ _) = n

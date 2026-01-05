@@ -17,7 +17,7 @@
 -----------------------------------------------------------------------------
 module Data.Algebra.Internal where
 
-import GHC.Exts (Constraint)
+import Data.Kind (Constraint, Type)
 import Control.Applicative (Const)
 import Data.Monoid (Ap)
 
@@ -25,11 +25,11 @@ import GHC.Conc (STM)
 import Control.Arrow ((&&&))
 
 -- | The signature datatype for the class @c@.
-type family Signature (c :: * -> Constraint) :: * -> *
+type family Signature (c :: Type -> Constraint) :: Type -> Type
 
 class Traversable f => AlgebraSignature f where
   -- | The class for which @f@ is the signature.
-  type Class f :: * -> Constraint
+  type Class f :: Type -> Constraint
   -- | Translate the operations of the signature to method calls of the class.
   evaluate :: Class f b => f b -> b
 
